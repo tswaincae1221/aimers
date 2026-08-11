@@ -1,21 +1,38 @@
-import numpy as np
-import pandas as pd
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
-from src.experiment_models import fit_validation_model
+[project]
+name = "lg-aimers-experiment-lab"
+version = "0.3.0"
+description = "Configuration-driven, leakage-safe feature and model experiment lab"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=15.0",
+    "scikit-learn>=1.4",
+    "lightgbm>=4.3",
+    "matplotlib>=3.8",
+]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+optional-models = ["xgboost>=2.0", "catboost>=1.2"]
 
-def test_constant_model_uses_training_rate() -> None:
-    train = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
-    valid = pd.DataFrame({"x": [5.0, 6.0]})
-    result = fit_validation_model(
-        {"type": "constant", "params": {}},
-        train,
-        pd.Series([0, 1, 1, 0]),
-        valid,
-        pd.Series([0, 1]),
-        [],
-        seed=42,
-        n_jobs=1,
-    )
-    assert np.allclose(result.probability, 0.5)
-    assert result.importance.empty
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E741"]

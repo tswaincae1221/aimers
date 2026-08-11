@@ -1,0 +1,256 @@
+{
+  "seed": 42,
+  "n_jobs": 4,
+  "validation_season": 2024,
+  "smoothing": 50.0,
+  "accepted_mapping_grades": ["확정", "높음"],
+  "baseline_experiment": "v1__lgbm_base",
+  "save_validation_models": false,
+  "modes": {
+    "quick": {
+      "max_rows_per_season": 5000,
+      "max_trackman_rows": 300000
+    },
+    "full": {
+      "max_rows_per_season": null,
+      "max_trackman_rows": null
+    }
+  },
+  "feature_sets": {
+    "v1": {
+      "description": "기존 V1 155개 피처",
+      "blocks": [],
+      "drop_patterns": []
+    },
+    "v1_asof": {
+      "description": "V1 + 공식 asof 추세·대조 13개",
+      "blocks": ["asof_trend"],
+      "drop_patterns": []
+    },
+    "v1_asof_situation": {
+      "description": "V1 + asof 추세 + 상황·압박 상호작용",
+      "blocks": ["asof_trend", "situation"],
+      "drop_patterns": []
+    },
+    "v1_all_rowwise": {
+      "description": "V1 + asof + 상황 + 구종 구성 + 표본 신뢰도",
+      "blocks": ["asof_trend", "situation", "pitchmix", "reliability"],
+      "drop_patterns": []
+    },
+    "v1_all_no_ids": {
+      "description": "전체 row-wise 피처에서 투수·타자 ID 제거",
+      "blocks": ["asof_trend", "situation", "pitchmix", "reliability"],
+      "drop_patterns": ["pitcher_id", "batter_id"]
+    },
+    "v1_all_no_trackman": {
+      "description": "전체 row-wise 피처에서 Trackman 계열 제거",
+      "blocks": ["asof_trend", "situation", "pitchmix", "reliability"],
+      "drop_patterns": ["tm_*", "trackman_*"]
+    }
+  },
+  "models": {
+    "constant": {
+      "type": "constant",
+      "description": "학습 성공률만 예측하는 기준선",
+      "params": {}
+    },
+    "lgbm_base": {
+      "type": "lightgbm",
+      "description": "V1과 동일한 기본 LightGBM",
+      "params": {
+        "n_estimators": 1500,
+        "early_stopping_rounds": 100,
+        "learning_rate": 0.025,
+        "num_leaves": 31,
+        "max_depth": -1,
+        "min_child_samples": 300,
+        "subsample": 0.85,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.85,
+        "reg_alpha": 0.2,
+        "reg_lambda": 3.0,
+        "max_bin": 255
+      }
+    },
+    "lgbm_regularized": {
+      "type": "lightgbm",
+      "description": "표본이 많은 데이터에 맞춘 보수적 LightGBM",
+      "params": {
+        "n_estimators": 1800,
+        "early_stopping_rounds": 120,
+        "learning_rate": 0.02,
+        "num_leaves": 24,
+        "max_depth": 8,
+        "min_child_samples": 500,
+        "subsample": 0.8,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.75,
+        "reg_alpha": 0.5,
+        "reg_lambda": 8.0,
+        "max_bin": 127
+      }
+    },
+    "lgbm_wide": {
+      "type": "lightgbm",
+      "description": "상호작용 탐색을 늘린 넓은 LightGBM",
+      "params": {
+        "n_estimators": 1400,
+        "early_stopping_rounds": 100,
+        "learning_rate": 0.025,
+        "num_leaves": 63,
+        "max_depth": -1,
+        "min_child_samples": 400,
+        "subsample": 0.85,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.9,
+        "reg_alpha": 0.3,
+        "reg_lambda": 6.0,
+        "max_bin": 255
+      }
+    },
+    "logistic": {
+      "type": "logistic",
+      "description": "빈도 인코딩 Logistic Regression",
+      "params": {
+        "C": 0.15,
+        "max_iter": 250,
+        "solver": "lbfgs"
+      }
+    },
+    "hist_gbdt": {
+      "type": "hist_gbdt",
+      "description": "scikit-learn Histogram Gradient Boosting",
+      "params": {
+        "learning_rate": 0.06,
+        "max_iter": 350,
+        "max_leaf_nodes": 31,
+        "min_samples_leaf": 250,
+        "l2_regularization": 3.0
+      }
+    },
+    "extra_trees": {
+      "type": "extra_trees",
+      "description": "다양성이 큰 Extra Trees",
+      "params": {
+        "n_estimators": 350,
+        "max_depth": 18,
+        "min_samples_leaf": 50,
+        "max_features": 0.65,
+        "bootstrap": true,
+        "max_samples": 0.45
+      }
+    },
+    "xgboost": {
+      "type": "xgboost",
+      "description": "선택 설치 XGBoost hist",
+      "params": {
+        "n_estimators": 1400,
+        "early_stopping_rounds": 100,
+        "learning_rate": 0.03,
+        "max_depth": 7,
+        "min_child_weight": 60,
+        "subsample": 0.85,
+        "colsample_bytree": 0.85,
+        "reg_alpha": 0.2,
+        "reg_lambda": 4.0
+      }
+    },
+    "catboost": {
+      "type": "catboost",
+      "description": "선택 설치 CatBoost",
+      "early_stopping_rounds": 100,
+      "params": {
+        "iterations": 1400,
+        "learning_rate": 0.035,
+        "depth": 8,
+        "l2_leaf_reg": 6.0
+      }
+    }
+  },
+  "experiments": [
+    {
+      "name": "constant_reference",
+      "feature_set": "v1",
+      "model": "constant",
+      "presets": ["starter", "extended"]
+    },
+    {
+      "name": "v1__lgbm_base",
+      "feature_set": "v1",
+      "model": "lgbm_base",
+      "presets": ["starter", "extended"]
+    },
+    {
+      "name": "v1_asof__lgbm_base",
+      "feature_set": "v1_asof",
+      "model": "lgbm_base",
+      "presets": ["starter", "extended"]
+    },
+    {
+      "name": "v1_asof_situation__lgbm_base",
+      "feature_set": "v1_asof_situation",
+      "model": "lgbm_base",
+      "presets": ["starter", "extended"]
+    },
+    {
+      "name": "v1_all__lgbm_base",
+      "feature_set": "v1_all_rowwise",
+      "model": "lgbm_base",
+      "presets": ["starter", "extended"]
+    },
+    {
+      "name": "v1_all__lgbm_regularized",
+      "feature_set": "v1_all_rowwise",
+      "model": "lgbm_regularized",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all__lgbm_wide",
+      "feature_set": "v1_all_rowwise",
+      "model": "lgbm_wide",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all_no_ids__lgbm_base",
+      "feature_set": "v1_all_no_ids",
+      "model": "lgbm_base",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all_no_trackman__lgbm_base",
+      "feature_set": "v1_all_no_trackman",
+      "model": "lgbm_base",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all__logistic",
+      "feature_set": "v1_all_rowwise",
+      "model": "logistic",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all__hist_gbdt",
+      "feature_set": "v1_all_rowwise",
+      "model": "hist_gbdt",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all__extra_trees",
+      "feature_set": "v1_all_rowwise",
+      "model": "extra_trees",
+      "presets": ["extended"]
+    },
+    {
+      "name": "v1_all__xgboost",
+      "feature_set": "v1_all_rowwise",
+      "model": "xgboost",
+      "presets": []
+    },
+    {
+      "name": "v1_all__catboost",
+      "feature_set": "v1_all_rowwise",
+      "model": "catboost",
+      "presets": []
+    }
+  ]
+}

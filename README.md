@@ -1,179 +1,168 @@
-from __future__ import annotations
+# LG Aimers 피처·모델 자동 실험실
 
-import numpy as np
-import pandas as pd
+기존 V1 155개 피처와 V1.1 `asof` 추세 실험을 확장한 설정 기반 실험
+프레임워크입니다. 팀 공통 비교 기준은 항상 **2019~2023 학습 → 2024 검증**으로
+고정합니다.
 
-from src.first_model_features import (
-    ASOF_TREND_FEATURES,
-    TARGET,
-    TRACKMAN_NUMERIC_COLUMNS,
-    assemble_features,
-    build_current_features,
-    build_trackman_features,
-)
+한 번의 실행으로 다음을 자동 처리합니다.
 
+- V1 전처리와 Trackman 집계를 한 번만 수행
+- 설정 파일에 적힌 피처 묶음 × 모델 조합을 순차 실행
+- Brier Score, Log Loss, AUC, BSS, calibration 오차, 시간 기록
+- V1 LightGBM 대비 개선량과 개선률 계산
+- 실행별 예측값, calibration, 피처 중요도, 오류 보존
+- 전체 리더보드, 개선폭, 점수-시간 그래프와 Markdown 보고서 생성
+- 완료 조합 자동 건너뛰기와 중단 후 이어서 실행
 
-def make_rows() -> pd.DataFrame:
-    rows = []
-    for index, (season, pitcher, target) in enumerate(
-        [(2019, 10, 1), (2019, 10, 0), (2020, 10, 1), (2020, 20, 0)]
-    ):
-        rows.append(
-            {
-                "row_id": f"TRAIN_{index}",
-                "season": season,
-                "game_month": 4,
-                "game_dayofweek": 1,
-                "inning": 1,
-                "top_bottom": "T",
-                "game_type": "R",
-                "balls_before": index % 4,
-                "strikes_before": index % 3,
-                "outs_before": 0,
-                "run_top_before": 0,
-                "run_bot_before": 0,
-                "run_total_before": 0,
-                "score_diff_home": 0,
-                "score_diff_pitcher_team": 0,
-                "runner_on_1b": 0,
-                "runner_on_2b": 0,
-                "runner_on_3b": 0,
-                "num_runners_on": 0,
-                "base_state": "___",
-                "home_win_expectancy": 50.0,
-                "away_win_expectancy": 50.0,
-                "li": 1.0,
-                "pitcher_id": pitcher,
-                "batter_id": 100 + index,
-                "pitcher_hand": 1,
-                "batter_hand": 2,
-                "pitcher_team_id": 1,
-                "batter_team_id": 2,
-                "asof_pitcher_n": index,
-                "asof_pitcher_success_rate": np.nan,
-                "asof_pitcher_reverse_rate": np.nan,
-                "asof_pitcher_middle_rate": np.nan,
-                "asof_pitcher_ball_rate": np.nan,
-                "asof_pitcher_strike_rate": np.nan,
-                "asof_pitcher_prev1_game_success_rate": np.nan,
-                "asof_pitcher_prev3_game_success_rate": np.nan,
-                "asof_pitcher_prev5_game_success_rate": np.nan,
-                "asof_pitcher_prev1_game_middle_rate": np.nan,
-                "asof_pitcher_prev3_game_middle_rate": np.nan,
-                "asof_pitcher_prev5_game_middle_rate": np.nan,
-                "asof_batter_n": 0,
-                "asof_batter_success_rate": np.nan,
-                "asof_batter_middle_rate": np.nan,
-                "asof_pitcher_pitchmix_n": 0,
-                "asof_pitcher_fastball_rate": np.nan,
-                "asof_pitcher_breaking_rate": np.nan,
-                "asof_pitcher_offspeed_rate": np.nan,
-                TARGET: target,
-            }
-        )
-    return pd.DataFrame(rows)
+## 가장 쉬운 실행
 
+1. 이 저장소 내용을 GitHub 비공개 저장소에 올립니다.
+2. `notebooks/run_experiment_lab_colab.ipynb`를 Colab에 업로드합니다.
+3. 노트북 첫 설정 셀에서 GitHub 저장소 이름만 맞춥니다.
+4. `MODE="quick"`, `PRESET="starter"`로 위에서부터 실행합니다.
+5. quick 실행이 통과하면 `MODE="full"`로 바꿔 정식 비교합니다.
 
-def test_history_features_use_only_prior_seasons() -> None:
-    train = make_rows()
-    bundle = assemble_features(train, smoothing=0.0)
+노트북의 기본 데이터 폴더는 다음과 같습니다.
 
-    first_2020 = bundle.features.loc[2]
-    assert first_2020["pitcher_career_n"] == 2
-    assert first_2020["pitcher_career_rate"] == 0.5
+```text
+/content/drive/MyDrive/aimers_data/
+├─ train.csv
+├─ test.csv
+└─ trackman_history.csv
+```
 
-    new_pitcher_2020 = bundle.features.loc[3]
-    assert new_pitcher_2020["pitcher_history_missing"] == 1
+## 제공 피처 블록
 
+| 블록 | 개수 | 내용 |
+|---|---:|---|
+| `asof_trend` | 13 | 1·3·5경기 추세, 투수-타자 차이, strike-ball 차이 |
+| `situation` | 11 | base-out, count-base-out, LI·후반·접전 압박 상호작용 |
+| `pitchmix` | 8 | 구종 구성 entropy, 주 구종 비율, 구종 간 사용률 차이 |
+| `reliability` | 7 | 투수·타자·Trackman 표본 신뢰도와 정보원 개수 |
 
-def test_current_situation_derivations() -> None:
-    bundle = assemble_features(make_rows(), smoothing=1.0)
-    row = bundle.features.loc[3]
-    assert row["count_state"] == "3-0"
-    assert row["three_ball"] == 1
-    assert row["is_tie"] == 1
-    assert row["risp"] == 0
+모든 추가 블록은 현재 행의 공식 사전 정보나 `season < 예측 시즌`으로 만들어진
+V1 피처만 사용합니다. 현재 투구의 정답은 사용하지 않습니다.
 
+## 제공 모델
 
-def test_asof_trend_features_are_optional_and_use_only_source_columns() -> None:
-    rows = make_rows()
-    rows.loc[0, [
-        "asof_pitcher_success_rate",
-        "asof_pitcher_prev1_game_success_rate",
-        "asof_pitcher_prev3_game_success_rate",
-        "asof_pitcher_prev5_game_success_rate",
-        "asof_pitcher_middle_rate",
-        "asof_pitcher_prev1_game_middle_rate",
-        "asof_pitcher_prev3_game_middle_rate",
-        "asof_pitcher_prev5_game_middle_rate",
-        "asof_batter_success_rate",
-        "asof_batter_middle_rate",
-        "asof_pitcher_strike_rate",
-        "asof_pitcher_ball_rate",
-    ]] = [0.60, 0.70, 0.62, 0.55, 0.40, 0.48, 0.43, 0.39, 0.51, 0.36, 0.58, 0.42]
+| 모델 설정 | 기본 프리셋 | 특징 |
+|---|---|---|
+| Constant | starter | 학습 성공률 기준선 |
+| LightGBM base | starter | 기존 V1과 동일한 기준 모델 |
+| LightGBM regularized | extended | 더 강한 규제와 큰 leaf 최소 표본 |
+| LightGBM wide | extended | 더 많은 상호작용 탐색 |
+| Logistic Regression | extended | 빈도 인코딩 선형 기준선 |
+| HistGradientBoosting | extended | scikit-learn 히스토그램 부스팅 |
+| ExtraTrees | extended | 배깅 기반 비선형 비교군 |
+| XGBoost | all | 선택 설치 모델 |
+| CatBoost | all | 선택 설치, 범주형 직접 처리 |
 
-    baseline = build_current_features(rows)
-    augmented = build_current_features(rows, include_asof_trends=True)
+`starter`는 피처 블록의 효과를 같은 LightGBM으로 비교합니다. `extended`는
+모델과 제거 실험까지 넓히며, `all`은 설치 시간이 긴 XGBoost와 CatBoost도
+포함합니다.
 
-    assert not set(ASOF_TREND_FEATURES).intersection(baseline.columns)
-    assert set(ASOF_TREND_FEATURES).issubset(augmented.columns)
-    assert np.isclose(augmented.loc[0, "asof_pitcher_success_trend_1v5"], 0.15)
-    assert np.isclose(augmented.loc[0, "asof_pitcher_middle_trend_3v5"], 0.04)
-    assert np.isclose(augmented.loc[0, "asof_pitcher_batter_success_gap"], 0.09)
-    assert np.isclose(augmented.loc[0, "asof_pitcher_strike_ball_gap"], 0.16)
-    assert augmented.loc[0, "asof_success_trend_source_n"] == 3
-    assert augmented.loc[1, "asof_success_trend_source_n"] == 0
-    assert np.isnan(augmented.loc[1, "asof_pitcher_success_trend_1v5"])
+## 직접 실행
 
+```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
 
-def test_asof_trend_flag_adds_exactly_13_features() -> None:
-    baseline = assemble_features(make_rows(), smoothing=1.0)
-    augmented = assemble_features(
-        make_rows(),
-        smoothing=1.0,
-        include_asof_trends=True,
-    )
+python -m src.experiment_runner \
+  --config config/experiments.json \
+  --train data/train.csv \
+  --test data/test.csv \
+  --trackman data/trackman_history.csv \
+  --mapping resources/pitcher_trackman_mapping.csv \
+  --output-dir results/experiment_lab/quick \
+  --mode quick \
+  --preset starter \
+  --validation-season 2024 \
+  --n-jobs 2
+```
 
-    assert augmented.features.shape[1] == baseline.features.shape[1] + 13
-    added = [
-        column
-        for column in augmented.features.columns
-        if column not in baseline.features.columns
-    ]
-    assert added == ASOF_TREND_FEATURES
+정식 비교는 출력 폴더와 모드만 바꿉니다.
 
+```bash
+python -m src.experiment_runner \
+  --config config/experiments.json \
+  --train data/train.csv \
+  --test data/test.csv \
+  --trackman data/trackman_history.csv \
+  --mapping resources/pitcher_trackman_mapping.csv \
+  --output-dir results/experiment_lab/full \
+  --mode full \
+  --preset starter \
+  --validation-season 2024 \
+  --n-jobs 4
+```
 
-def test_trackman_features_use_only_prior_seasons() -> None:
-    train = make_rows()
-    current = build_current_features(train)
-    summary_rows = []
-    for season, speed in [(2019, 140.0), (2020, 150.0)]:
-        row = {
-            "pitcher_trackman_id": "900",
-            "season": season,
-            "tm_pitch_n": 10,
-            "usage_fastball__sum": 10,
-            "usage_breaking__sum": 0,
-            "usage_offspeed__sum": 0,
-            "usage_other__sum": 0,
-        }
-        for column in TRACKMAN_NUMERIC_COLUMNS:
-            mean = speed if column == "rel_speed" else 1.0
-            row[f"{column}__n"] = 10
-            row[f"{column}__sum"] = 10 * mean
-            row[f"{column}__sqsum"] = 10 * mean**2
-        summary_rows.append(row)
+특정 조합만 실행하려면 `--only`를 사용합니다.
 
-    mapping = pd.DataFrame(
-        {
-            "pitcher_id": ["10"],
-            "pitcher_trackman_id": ["900"],
-            "신뢰등급": ["확정"],
-            "매칭순도": [1.0],
-            "mapping_accepted": [True],
-        }
-    )
-    features = build_trackman_features(current, pd.DataFrame(summary_rows), mapping)
+```bash
+python -m src.experiment_runner ... \
+  --only v1__lgbm_base v1_asof__lgbm_base
+```
 
-    assert np.isnan(features.loc[0, "tm_career_rel_speed_mean"])
-    assert features.loc[2, "tm_career_rel_speed_mean"] == 140.0
+## 실험 추가
+
+`config/experiments.json`은 세 부분으로 나뉩니다.
+
+1. `feature_sets`: 사용할 블록과 제거 패턴
+2. `models`: 모델 종류와 하이퍼파라미터
+3. `experiments`: 피처 묶음과 모델의 실제 조합
+
+예를 들어 새 LightGBM 설정을 비교하려면 `models`에 설정을 추가한 뒤
+`experiments`에 다음 형태의 항목을 추가합니다.
+
+```json
+{
+  "name": "v1_asof__lgbm_custom",
+  "feature_set": "v1_asof",
+  "model": "lgbm_custom",
+  "presets": ["extended"]
+}
+```
+
+새 row-wise 피처는 `src/experiment_features.py`에 builder를 추가하고
+`FEATURE_BLOCKS`에 등록합니다. 모델 실행 코드를 고치지 않고 설정에서 조합할 수
+있습니다.
+
+## 결과 구조
+
+```text
+results/experiment_lab/full/
+├─ experiment_history.csv          # 성공·실패를 포함한 누적 기록
+├─ leaderboard.csv                 # 동일 데이터·모드의 최신 결과
+├─ experiment_report.md            # 자동 해석 보고서
+├─ feature_catalog.csv             # 추가 피처 목록
+├─ leaderboard_brier.png
+├─ improvement_vs_baseline.png
+├─ score_vs_time.png
+├─ cache/                          # Trackman 집계 재사용
+└─ runs/
+   └─ 실행시각__실험명__설정해시/
+      ├─ metrics.json
+      ├─ resolved_config.json
+      ├─ feature_report.json
+      ├─ validation_predictions.csv.gz
+      ├─ calibration_bins.csv
+      ├─ calibration_curve.png
+      ├─ prediction_distribution.png
+      ├─ feature_importance.csv
+      ├─ feature_importance_top30.png
+      └─ error.txt                 # 실패한 실험에만 생성
+```
+
+판정은 `brier_delta_vs_baseline`을 보면 됩니다.
+
+- 음수: V1 LightGBM보다 개선
+- 0: 동일
+- 양수: 악화
+
+quick 모드는 시즌당 일부 행만 쓰므로 점수 비교용이 아닙니다. 최종 채택은 반드시
+full 모드 결과로 결정합니다.
+
+## 대회 데이터 보호
+
+대회 원본 데이터, 전처리 결과, 실행 결과와 학습 모델은 저장소에 포함하지 않습니다.
+대회 규정을 재확인하기 전까지 저장소는 비공개로 유지하는 것을 권장합니다.
